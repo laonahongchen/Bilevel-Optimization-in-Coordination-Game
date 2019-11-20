@@ -1,0 +1,3 @@
+# from malib.policies.deterministic_policy import DeterministicMLPPolicy
+
+from bilevel_pg.bilevelpg.policy.deterministic_policy import DeterministicMLPPolicy
