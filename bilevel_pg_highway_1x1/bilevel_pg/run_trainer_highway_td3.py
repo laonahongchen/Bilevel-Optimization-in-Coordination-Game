@@ -2,7 +2,7 @@ from bilevel_pg.bilevelpg.agents.td3_agents import TD3Agent
 import highway_env
 import gym
 
-from bilevel_pg.bilevelpg.trainer.bilevel_trainer_highway_td3 import Bilevel_Trainer
+from bilevel_pg.bilevelpg.trainer.td3_trainer_highway import TD3_Trainer
 from bilevel_pg.bilevelpg.utils.random import set_seed
 from bilevel_pg.bilevelpg.logger.utils import set_logger
 from bilevel_pg.bilevelpg.samplers.sampler_highway_td3 import MASampler
@@ -53,15 +53,12 @@ def get_td3_agent(env, agent_id, hidden_layer_sizes, max_replay_buffer_size):
         agent_id=agent_id,
     )
 
-for seed in range(168, 170):
+for seed in range(0, 10):
     print(seed)
     set_seed(seed)
 
-    agent_setting = 'bilevel'
-    #agent_setting = 'maddpg'
-    #game_name = 'coordination_same_action_with_preference'
-    #game_name = 'climbing_3x3'
-    #game_name = 'climbing'
+    agent_setting = 'TD3'
+
     game_name = 'merge_env'
     suffix = f'{game_name}/{agent_setting}'
 
@@ -80,15 +77,8 @@ for seed in range(168, 170):
     hidden_layer_sizes = (30, 30)
     max_replay_buffer_size = 500
 
-    #env = MatrixGame(game_name, agent_num, action_num)
-    # env = GridEnv()
     agents = []
     train_agents = []
-    # for i in range(agent_num):
-    #     agent = get_maddpg_agent(env, i, hidden_layer_sizes=hidden_layer_sizes, max_replay_buffer_size=max_replay_buffer_size)
-    #     agents.append(agent)
-
-
 
     for i in range(env.agent_num):
         agents.append(get_td3_agent(env, i, hidden_layer_sizes=hidden_layer_sizes, max_replay_buffer_size=max_replay_buffer_size))
@@ -98,15 +88,11 @@ for seed in range(168, 170):
     sampler = MASampler(env.agent_num, env.leader_num, env.follower_num)
     sampler.initialize(env, agents, train_agents)
 
-    trainer = Bilevel_Trainer(
+    trainer = TD3_Trainer(
         seed=seed, env=env, agents=agents, train_agents=train_agents, sampler=sampler,
         steps=training_steps, exploration_steps=exploration_step,
         extra_experiences=['target_actions'], batch_size=batch_size
     )
-    '''
-    restore_path = './models/agents_bilevel_1x1_'+'test'+str(seed)+'.pickle'
-    trainer.restore(restore_path)
-    sampler.train_agents = trainer.train_agents
-    '''
+
     trainer.run()
-    trainer.save()
+    #trainer.save()

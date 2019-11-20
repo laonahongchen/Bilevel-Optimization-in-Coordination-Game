@@ -2,12 +2,12 @@
 The trainer for multi-agent training.
 """
 import pickle
-
-from bilevel_pg.bilevelpg.trainer.utils_highway import *
+# from malib.trainers.utils import *
+from bilevel_pg.bilevelpg.trainer.utils_highway_maddpg import *
 import time
-import numpy as np 
+import numpy as np
 
-class Bilevel_Trainer:
+class MADDPG_Trainer:
     """This class implements a multi-agent trainer.
     """
     def __init__(
@@ -31,7 +31,7 @@ class Bilevel_Trainer:
         self.extra_experiences = extra_experiences
         self.losses = []
         self.save_path = save_path
-        self.epsilon = 0.1
+        self.epsilon = 0.5
         self.success_rate = []
 
     def setup(self, env, agents, sampler):
@@ -72,11 +72,10 @@ class Bilevel_Trainer:
             else:
                 self.sampler.sample()
             
-            
+            #self.sampler.sample()
             
             batches = self.sample_batches()
-        
-            
+
             for extra_experience in self.extra_experiences:
                 if extra_experience == 'annealing':
                     batches = add_annealing(batches, step, annealing_scale=1.)
@@ -92,34 +91,28 @@ class Bilevel_Trainer:
             if step % self.training_interval == 0:
                 
                 for agent, batch in zip(self.agents, batches):
-                    if agent._agent_id < self.sampler.leader_num:
-                        agent_losses = self.train_agents[0].train(batch, self.env, agent._agent_id)
-                    else:
-                        agent_losses = self.train_agents[1].train(batch, self.env, agent._agent_id)
+                    agent_losses = self.train_agents[agent._agent_id].train(batch, self.env, agent._agent_id)
                     agents_losses.append(agent_losses)
-
             
             if step % 500 == 0 and step > 0:
-                self.env.epsilon *= 0.9
+                self.env.epsilon *= 0.9    
 
             '''
             if self.env.merge_count % 100 == 0:
-                np.save('./curves/reward0_BILEVEL_1x1_'+str(self.seed)+'.npy', self.env.episodes_reward_0)
-                np.save('./curves/reward1_BILEVEL_1x1_'+str(self.seed)+'.npy', self.env.episodes_reward_1)                
-                np.save('./curves/success_merge_BILEVEL_1x1_'+str(self.seed)+'.npy', self.env.episode_merge_record)
-                np.save('./curves/target_merge_BILEVEL_1x1_'+str(self.seed)+'.npy', self.env.episode_target_merge_record) 
+                np.save('./curves/reward0_MADDPG_1x1_test'+str(self.seed)+'_s6_t15.npy', self.env.episodes_reward_0)
+                np.save('./curves/reward1_MADDPG_1x1_test'+str(self.seed)+'_s6_t15.npy', self.env.episodes_reward_1) 
+                np.save('./curves/success_merge_MADDPG_1x1_test'+str(self.seed)+'_s6_t15.npy', self.env.episode_merge_record)
+                np.save('./curves/target_merge_MADDPG_1x1_test'+str(self.seed)+'_s6_t15.npy', self.env.episode_target_merge_record) 
             '''
-            
             if self.env.merge_count == 8001:
                 break
-            
+            # print('train finish')
+            # print(int(round(time.time() * 1000)))
 
-            
     def save(self):
-        save_path = './models/agents_bilevel_1x1_'+str(self.seed)+'.pickle'
         if self.save_path is None:
-            self.save_path = './models/agents_bilevel_1x1.pickle'
-        with open(save_path, 'wb') as f:
+            self.save_path = './models/agents_maddpg_1x1_'+str(self.seed)+'.pickle'
+        with open(self.save_path, 'wb') as f:
             pickle.dump(self.train_agents, f, pickle.HIGHEST_PROTOCOL)
 
     def restore(self, restore_path):

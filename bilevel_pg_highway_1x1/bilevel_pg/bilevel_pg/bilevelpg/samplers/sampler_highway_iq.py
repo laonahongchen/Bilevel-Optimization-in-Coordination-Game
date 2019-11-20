@@ -3,7 +3,7 @@ import numpy as np
 # from malib.logger import logger, tabular
 from bilevel_pg.bilevelpg.logger import logger, tabular
 import tensorflow as tf
-
+from highway_env import utils
 num_sample = 10
 
 class Sampler(object):
@@ -58,8 +58,6 @@ class MASampler(Sampler):
         self._max_path_return = np.array([-np.inf] * self.agent_num, dtype=np.float32)
         self._n_episodes = 0
         self._total_samples = 0
-        # self.episode_rewards = [0]  # sum of rewards for all agents
-        # self.agent_rewards = [[0] for _ in range(self.agent_num)] # individual agent reward
         self.step = 0
         self._current_observation_n = None
         self.env = None
@@ -68,6 +66,8 @@ class MASampler(Sampler):
         self.level_agent_num = 2
         self.leader_idx = 0
         self.follower_idx = 1
+        self.correct_merge = 0
+        self.idle_action = 0
         self.rewards_record = []
 
     def set_policy(self, policies):
@@ -97,91 +97,73 @@ class MASampler(Sampler):
             # print(self._current_observation_n)
         
         action_n = []
-
         supplied_observation = []
-        #print(self._current_observation_n.shape)
-        # print(self._current_observation_n)
-        # print(self._current_observation_n.shape)
-        #mix_observe_0 = tf.one_hot(self._current_observation_n[0], self.env.num_state)
+        observations = np.zeros((2, self.env.num_state))
+        next_observations = np.zeros((2, self.env.num_state))
+        if self.env.sim_step >= self.env.num_state - 3:
+            print('wrong')
+        observations[0][self.env.sim_step] = 1
+        observations[1][self.env.sim_step] = 1
+        next_observations[0][self.env.sim_step + 1] = 1
+        next_observations[1][self.env.sim_step + 1] = 1
+        relative_info = np.zeros((2, 2))
+        speed_max = 70
+        velocity_range = 2 * 70
+        x_position_range = speed_max
+        delta_dx = self.env.road.vehicles[1].position[0] - self.env.road.vehicles[0].position[0]
+        delta_vx = self.env.road.vehicles[1].velocity - self.env.road.vehicles[0].velocity 
+        relative_info[0][0] = utils.remap(delta_dx, [-x_position_range, x_position_range], [-1, 1])
+        relative_info[0][1] = utils.remap(delta_vx, [-velocity_range, velocity_range], [-1, 1])
+        relative_info[1][0] = -relative_info[0][0]
+        relative_info[1][1] = -relative_info[0][1]
+        observations[:, -2:] = relative_info
 
         if explore:
             for i in range(self.agent_num):
-                if self.env.is_vehicles_valid[i]:
-                    action_n.append([np.random.randint(0, self.env.action_num)])
-                else:
-                    action_n.append([0])  # idle action 
+                action_n.append([np.random.randint(0, self.env.action_num)])
+
             for i in range(self.agent_num):
-                supplied_observation.append(self._current_observation_n[i])
-            
+                supplied_observation.append(observations[i])
         else:
             for i in range(self.agent_num):
-                supplied_observation.append(self._current_observation_n[i])
-                if self.env.is_vehicles_valid[i]:
-                    action_n.append(self.train_agents[i].act(self._current_observation_n[i].reshape(1, -1)))
-                else:
-                    action_n.append([0])  #idle action
-            # print('action shape:')
-            # print(action_0.shape, action_1.shape, np.array(action_n).shape)
-        #supplied_observation.append(mix_observe_0)
-        #supplied_observation.append(mix_observe_1)
-
+                supplied_observation.append(observations[i])
+                action_n.append(self.train_agents[i].act(observations[i].reshape(1, -1)))
         action_n = np.asarray(action_n)
+        
         pres_valid_conditions_n = []
         next_valid_conditions_n = []
 
-        for i, agent in enumerate(self.agents):   
-            '''
-            v = self.env.road.vehicles[i]
-            bs_v_idxes = []
-            close_leaders = self.env.road.closest_leader_vehicles_to(v, self.level_agent_num)
-            for i in range(len(close_leaders)):
-                obs_v_idxes.append(close_leaders[i].index)
-            close_followers = self.env.road.closest_follower_vehicles_to(v, self.level_agent_num)
-            for i in range(len(close_followers)):
-                obs_v_idxes.append(close_followers[i].index)
-            '''
-            
-            if not self.env.is_vehicles_valid[i]:
-                pres_valid_conditions_n.append(0)
-            else:
-                pres_valid_conditions_n.append(1)
-            
-
-        next_observation_n, reward_n, done_n, info = self.env.step(action_n)
-        self.rewards_record.append(reward_n)
         #self.env.render()
+        '''
+        for i in range(3):
+            for j in range(3):
+                print("q value for upper agent ", i, j, self.train_agents[0]._qf.get_values(np.hstack((observations[0], tf.one_hot(i, self.env.action_num))).reshape(1, -1)))
+        print()
+        for i in range(3):
+            for j in range(3):
+                print("q value for lower agent ", i, j, self.train_agents[1]._qf.get_values(np.hstack((observations[0], tf.one_hot(i, self.env.action_num))).reshape(1, -1)))
         
-        for i, agent in enumerate(self.agents):    
-            '''        
-            v = self.env.road.vehicles[i]
-            next_obs_v_idxes = []
-            close_leaders = self.env.road.closest_leader_vehicles_to(v, self.level_agent_num)
-            for i in range(len(close_leaders)):
-                next_obs_v_idxes.append(close_leaders[i].index)
-            close_followers = self.env.road.closest_follower_vehicles_to(v, self.level_agent_num)
-            for i in range(len(close_followers)):
-                next_obs_v_idxes.append(close_followers[i].index)
-            '''
-            if not self.env.is_vehicles_valid[i]:
-                next_valid_conditions_n.append(0)
-            else:
-                next_valid_conditions_n.append(1)
-            
+        #print('a0 = ', action_n[0])
+        #print('a1 = ', action_n[1])
+        '''
+        next_observation_n, reward_n, done_n, info = self.env.step(action_n)
+        delta_dx = self.env.road.vehicles[1].position[0] - self.env.road.vehicles[0].position[0]
+        delta_vx = self.env.road.vehicles[1].velocity - self.env.road.vehicles[0].velocity 
+        relative_info[0][0] = utils.remap(delta_dx, [-x_position_range, x_position_range], [-1, 1])
+        relative_info[0][1] = utils.remap(delta_vx, [-velocity_range, velocity_range], [-1, 1])
+        relative_info[1][0] = -relative_info[0][0]
+        relative_info[1][1] = -relative_info[0][1]
+        next_observations[:, -2:] = relative_info
         
-
         if self._global_reward:
             reward_n = np.array([np.sum(reward_n)] * self.agent_num)
-
-        # if action_n[0] == 0:
-        #     print('explore up!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-        #     print(action_n)
-        #     print(reward_n)
 
         self._path_length += 1
         self._path_return += np.array(reward_n, dtype=np.float32)
         self._total_samples += 1
         
         for i, agent in enumerate(self.agents):            
+
             agent.replay_buffer.add_sample(
                 # observation=self._current_observation_n[i].astype(np.float32),
                 observation=supplied_observation[i],
@@ -192,23 +174,19 @@ class MASampler(Sampler):
                 # terminal=done_n[i].astype(np.float32),
                 terminal=np.float32(done_n[i]),
                 # next_observation=next_observation_n[i].astype(np.float32),
-                next_observation=np.float32(next_observation_n[i]),
-                pres_valid_conditions=np.int16(pres_valid_conditions_n[i]),
-                next_valid_conditions=np.int16(next_valid_conditions_n[i]),
+                next_observation=np.float32(next_observations[i]),
             )
         
-              
+             
         self._current_observation_n = next_observation_n
-        # for i, rew in enumerate(reward_n):
-        #     self.episode_rewards[-1] += rew
-        #     self.agent_rewards[i][-1] += rew
-        #print("Correct merge count percentage: ", self.env.correct_merge_count / self.env.merge_count)
+       
         if self.step % (25 * 1000) == 0:
             print("steps: {}, episodes: {}, mean episode reward: {}".format(
                         self.step, len(reward_n), np.mean(reward_n[-1000:])))
 
         if np.all(done_n) or self._path_length >= self._max_path_length:
             self._current_observation_n = self.env.reset()
+
             #self.env.merge_count += 1
             self._max_path_return = np.maximum(self._max_path_return, self._path_return)
             self._mean_path_return = self._path_return / self._path_length

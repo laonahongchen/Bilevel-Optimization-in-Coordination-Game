@@ -58,6 +58,8 @@ class MASampler(Sampler):
         self._max_path_return = np.array([-np.inf] * self.agent_num, dtype=np.float32)
         self._n_episodes = 0
         self._total_samples = 0
+        # self.episode_rewards = [0]  # sum of rewards for all agents
+        # self.agent_rewards = [[0] for _ in range(self.agent_num)] # individual agent reward
         self.step = 0
         self._current_observation_n = None
         self.env = None
@@ -94,7 +96,7 @@ class MASampler(Sampler):
         if self._current_observation_n is None:
             # print('now updating')
             self._current_observation_n = self.env.reset()
-            # print(self._current_observation_n)
+
         
         action_n = []
         supplied_observation = []
@@ -108,8 +110,8 @@ class MASampler(Sampler):
         next_observations[0][self.env.sim_step + 1] = 1
         next_observations[1][self.env.sim_step + 1] = 1
         relative_info = np.zeros((2, 2))
-        speed_max = 70
-        velocity_range = 2 * 70
+        speed_max = 40
+        velocity_range = 2 * 40
         x_position_range = speed_max
         delta_dx = self.env.road.vehicles[1].position[0] - self.env.road.vehicles[0].position[0]
         delta_vx = self.env.road.vehicles[1].velocity - self.env.road.vehicles[0].velocity 
@@ -121,17 +123,46 @@ class MASampler(Sampler):
         if explore:
             for i in range(self.agent_num):
                 action_n.append([np.random.randint(0, self.env.action_num)])
-            for i in range(self.agent_num):
+                 
+
+            for i in range(self.leader_num):
                 supplied_observation.append(observations[i])
+            for i in range(self.leader_num, self.env.agent_num):      
+                mix_obs = np.hstack((observations[i],  tf.one_hot(action_n[0][0], self.env.action_num))).reshape(1, -1)
+                supplied_observation.append(mix_obs)
+        
         else:
-            for i in range(self.agent_num):
+            for i in range(self.leader_num):
                 supplied_observation.append(observations[i])
-                action_n.append(self.train_agents[i].act(observations[i].reshape(1, -1)))
+                action_n.append(self.train_agents[0].act(observations[i].reshape(1, -1)))
+                
+            
+            for i in range(self.leader_num, self.env.agent_num):
+                mix_obs = np.hstack((observations[i], tf.one_hot(action_n[0][0], self.env.action_num))).reshape(1, -1)
+                supplied_observation.append(mix_obs)
+                follower_action = self.train_agents[1].act(mix_obs.reshape(1, -1))
+                action_n.append(follower_action)
                 
         action_n = np.asarray(action_n)
-       
+
+        pres_valid_conditions_n = []
+        next_valid_conditions_n = []
+
         #self.env.render()
+        '''
+        for i in range(5):
+            for j in range(5):
+                print("q value for upper agent ", i, j, self.train_agents[0]._qf.get_values(np.hstack((observations[0], tf.one_hot(i, self.env.action_num), tf.one_hot(j, self.env.action_num))).reshape(1, -1)))
+        print()
+        for i in range(5):
+            for j in range(5):
+                print("q value for lower agent ", i, j, self.train_agents[1]._qf.get_values(np.hstack((observations[1], tf.one_hot(i, self.env.action_num), tf.one_hot(j, self.env.action_num))).reshape(1, -1))) 
+        print('a0 = ', action_n[0])
+        print('a1 = ', action_n[1])
+        print(self.env.road.vehicles[0].position[0], self.env.road.vehicles[1].position[0])
+        '''
         next_observation_n, reward_n, done_n, info = self.env.step(action_n)
+  
         delta_dx = self.env.road.vehicles[1].position[0] - self.env.road.vehicles[0].position[0]
         delta_vx = self.env.road.vehicles[1].velocity - self.env.road.vehicles[0].velocity 
         relative_info[0][0] = utils.remap(delta_dx, [-x_position_range, x_position_range], [-1, 1])
@@ -142,13 +173,14 @@ class MASampler(Sampler):
 
         if self._global_reward:
             reward_n = np.array([np.sum(reward_n)] * self.agent_num)
+ 
 
         self._path_length += 1
         self._path_return += np.array(reward_n, dtype=np.float32)
         self._total_samples += 1
+
         opponent_action = np.array(action_n[[j for j in range(len(action_n))]].flatten())
         for i, agent in enumerate(self.agents):            
-
             agent.replay_buffer.add_sample(
                 # observation=self._current_observation_n[i].astype(np.float32),
                 observation=supplied_observation[i],
@@ -166,6 +198,7 @@ class MASampler(Sampler):
         
              
         self._current_observation_n = next_observation_n
+
         if self.step % (25 * 1000) == 0:
             print("steps: {}, episodes: {}, mean episode reward: {}".format(
                         self.step, len(reward_n), np.mean(reward_n[-1000:])))

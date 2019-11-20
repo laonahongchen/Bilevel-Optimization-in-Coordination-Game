@@ -58,8 +58,6 @@ class MASampler(Sampler):
         self._max_path_return = np.array([-np.inf] * self.agent_num, dtype=np.float32)
         self._n_episodes = 0
         self._total_samples = 0
-        # self.episode_rewards = [0]  # sum of rewards for all agents
-        # self.agent_rewards = [[0] for _ in range(self.agent_num)] # individual agent reward
         self.step = 0
         self._current_observation_n = None
         self.env = None
@@ -96,14 +94,9 @@ class MASampler(Sampler):
         if self._current_observation_n is None:
             # print('now updating')
             self._current_observation_n = self.env.reset()
-            # print(self._current_observation_n)
         
         action_n = []
         supplied_observation = []
-        #print(self._current_observation_n.shape)
-        # print(self._current_observation_n)
-        # print(self._current_observation_n.shape)
-        #mix_observe_0 = tf.one_hot(self._current_observation_n[0], self.env.num_state)
         observations = np.zeros((2, self.env.num_state))
         next_observations = np.zeros((2, self.env.num_state))
         if self.env.sim_step >= self.env.num_state - 3:
@@ -123,11 +116,8 @@ class MASampler(Sampler):
         relative_info[1][0] = -relative_info[0][0]
         relative_info[1][1] = -relative_info[0][1]
         observations[:, -2:] = relative_info
-        #next_observation[self.env.num_state - 1] = utils.remap(-delta_dx, [-x_position_range, x_position_range], [-1, 1])
-        #next_observation[self.env.num_state - 2] = utils.remap(-delta_vx, [-velocity_range, velocity_range], [-1, 1])
         if explore:
             for i in range(self.agent_num):
-                #if self.env.is_vehicles_valid[i]:
                 action_n.append([np.random.randint(0, self.env.action_num)])
                 
 
@@ -136,23 +126,13 @@ class MASampler(Sampler):
         else:
             for i in range(self.agent_num):
                 supplied_observation.append(observations[i])
-                #if self.env.is_vehicles_valid[i]:
                 action_n.append(self.train_agents[i].act(observations[i].reshape(1, -1)))
-                
-            # print('action shape:')
-            # print(action_0.shape, action_1.shape, np.array(action_n).shape)
-        #supplied_observation.append(mix_observe_0)
-        #supplied_observation.append(mix_observe_1)
-
 
         action_n = np.asarray(action_n)
         
         pres_valid_conditions_n = []
         next_valid_conditions_n = []
-        #obs_v_idxes_n = []
-        #next_obs_v_idxes_n = []
-        
-        
+
         #self.env.render()
         next_observation_n, reward_n, done_n, info = self.env.step(action_n)
         delta_dx = self.env.road.vehicles[1].position[0] - self.env.road.vehicles[0].position[0]
@@ -162,17 +142,7 @@ class MASampler(Sampler):
         relative_info[1][0] = -relative_info[0][0]
         relative_info[1][1] = -relative_info[0][1]
         next_observations[:, -2:] = relative_info
-        #self.rewards_record.append(reward_n)
-        #self.env.render()
-        '''
-        print('episode #', self.env.merge_count)
-        print('observations: ', observations)
-        print('actions:', action_n)
-        print('rewards', reward_n)
-        print()
-        '''
-        
-        
+
         if self._global_reward:
             reward_n = np.array([np.sum(reward_n)] * self.agent_num)
 
@@ -183,12 +153,6 @@ class MASampler(Sampler):
         self._total_samples += 1
         opponent_action = np.array(action_n[[j for j in range(len(action_n))]].flatten())
         for i, agent in enumerate(self.agents):            
-            #opponent_action = action_n[[j for j in range(len(action_n))]].flatten()
-            #q_actions_concat = np.array(tf.one_hot(q_actions_n[i], self.env.action_num)).reshape(1, -1)
-            #print(q_actions_concat.shape)
-            #opponent_action_concat = np.array(tf.one_hot(opponent_action, self.env.action_num)).reshape(1, -1)
-            #print(obs_v_idxes_n[i])
-            #print(tf.one_hot(action_n[i], self.env.action_num))
             agent.replay_buffer.add_sample(
                 # observation=self._current_observation_n[i].astype(np.float32),
                 observation=supplied_observation[i],
@@ -201,27 +165,17 @@ class MASampler(Sampler):
                 # next_observation=next_observation_n[i].astype(np.float32),
                 next_observation=np.float32(next_observations[i]),
                 # opponent_action=opponent_action.astype(np.float32)
-                opponent_action=np.int32(opponent_action),
-                #Q_actions=q_actions_concat,
-                #obs_v_idxes=np.int16(obs_v_idxes_n[i]),
-                #next_obs_v_idxes=np.int16(next_obs_v_idxes_n[i]),
-                
+                opponent_action=np.int32(opponent_action),  
             )
         
              
         self._current_observation_n = next_observation_n
-        # for i, rew in enumerate(reward_n):
-        #     self.episode_rewards[-1] += rew
-        #     self.agent_rewards[i][-1] += rew
-        #print("Correct merge count percentage: ", self.env.correct_merge_count / self.env.merge_count)
         if self.step % (25 * 1000) == 0:
             print("steps: {}, episodes: {}, mean episode reward: {}".format(
                         self.step, len(reward_n), np.mean(reward_n[-1000:])))
 
         if np.all(done_n) or self._path_length >= self._max_path_length:
             self._current_observation_n = self.env.reset()
-
-            #self.env.merge_count += 1
             self._max_path_return = np.maximum(self._max_path_return, self._path_return)
             self._mean_path_return = self._path_return / self._path_length
             self._last_path_return = self._path_return
