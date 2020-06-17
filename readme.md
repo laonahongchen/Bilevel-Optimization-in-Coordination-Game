@@ -1,6 +1,6 @@
 # Bi-level Actor-Critic for Multi-agent Coordination
 
-This is the code for implementing the MADDPG algorithm presented in the paper:
+This is the code for implementing the MADDPG-based algorithms (Bi-AC, MADDPG) presented in the paper:
 [Bi-level Actor-Critic for Multi-agent Coordination](https://arxiv.org/pdf/1909.03510.pdf).
 
 It is base on the Multi-Agent Reinforcement Learning Framework:
